@@ -108,6 +108,51 @@ On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
 
 Note: You can also set these environment variables in your system instead of in the config file if you prefer.
 
+### Remote/Vercel deployment
+
+If you deploy this MCP server to Vercel (or any HTTPS host), clients that support remote MCP over HTTP can connect to the deployed endpoint directly.
+
+**Endpoint URL pattern**
+
+Use the deployed MCP endpoint URL:
+
+```text
+https://<project>.vercel.app/api/mcp
+```
+
+Replace `<project>` with your Vercel project name.
+
+**Auth headers (if endpoint protection is enabled)**
+
+If you add endpoint protection (for example, middleware auth, gateway auth, or a shared bearer token), configure your MCP client to send the required headers. A common pattern is:
+
+```http
+Authorization: Bearer <your-token>
+```
+
+You can also add any custom headers required by your deployment (for example `x-api-key`).
+
+**Example remote MCP client config**
+
+For MCP clients that support remote HTTP servers, use a URL-based server entry (instead of a local `command`):
+
+```json
+{
+  "mcpServers": {
+    "metabase-server-remote": {
+      "url": "https://<project>.vercel.app/api/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-token>"
+      }
+    }
+  }
+}
+```
+
+Exact field names may vary by client, but the important pieces are the remote MCP URL and any required HTTP headers.
+
+> Note: The Claude Desktop `command` config shown above is for running a local stdio MCP server process. It does **not** configure Claude Desktop to connect to a remotely hosted HTTP MCP endpoint.
+
 ### Installing via Smithery
 
 To install metabase-server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@imlewc/metabase-server):
