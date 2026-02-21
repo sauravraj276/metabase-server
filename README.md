@@ -60,6 +60,17 @@ export METABASE_PASSWORD=your_password
 ```
 You can set these environment variables in your shell profile or use a `.env` file with a package like `dotenv`.
 
+### Vercel project environment variables
+
+If you're deploying this server with Vercel, configure the same variables in your Vercel project settings:
+
+- `METABASE_URL`
+- Either `METABASE_API_KEY` (**preferred**) **or** both `METABASE_USERNAME` + `METABASE_PASSWORD`
+
+After adding/updating variables, make sure to promote them to the environments you use (for example, **Preview** and/or **Production**) and then redeploy so the new values are available at runtime.
+
+You can do this either in the Vercel dashboard (**Project → Settings → Environment Variables**) or via the Vercel CLI (`vercel env add`, then redeploy).
+
 ## Development
 
 Install dependencies:
