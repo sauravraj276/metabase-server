@@ -16,6 +16,7 @@ global.AbortController = global.AbortController || AbortController;
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
@@ -1605,29 +1606,50 @@ class MetabaseServer {
       throw error;
     }
   }
+
+  async connect(transport: Transport) {
+    await this.server.connect(transport);
+  }
+
+  async close() {
+    await this.server.close();
+  }
 }
 
-// Add global error handlers
-process.on('uncaughtException', (error: Error) => {
-  console.error(JSON.stringify({
-    timestamp: new Date().toISOString(),
-    level: 'fatal',
-    message: 'Uncaught Exception',
-    error: error.message,
-    stack: error.stack
-  }));
-  process.exit(1);
-});
+export function createMetabaseServer() {
+  return new MetabaseServer();
+}
 
-process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
-  const errorMessage = reason instanceof Error ? reason.message : String(reason);
-  console.error(JSON.stringify({
-    timestamp: new Date().toISOString(),
-    level: 'fatal',
-    message: 'Unhandled Rejection',
-    error: errorMessage
-  }));
-});
+export function registerProcessErrorHandlers() {
+  // Add global error handlers
+  process.on('uncaughtException', (error: Error) => {
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'fatal',
+      message: 'Uncaught Exception',
+      error: error.message,
+      stack: error.stack
+    }));
+    process.exit(1);
+  });
 
-const server = new MetabaseServer();
-server.run().catch(console.error);
+  process.on('unhandledRejection', (reason: unknown) => {
+    const errorMessage = reason instanceof Error ? reason.message : String(reason);
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'fatal',
+      message: 'Unhandled Rejection',
+      error: errorMessage
+    }));
+  });
+}
+
+export async function runStdioServer() {
+  registerProcessErrorHandlers();
+  const server = createMetabaseServer();
+  await server.run();
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runStdioServer().catch(console.error);
+}
