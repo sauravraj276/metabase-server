@@ -11,7 +11,7 @@
     "build"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\" && mkdir -p dist && cp build/*.js dist/",
+    "build": "tsc && tsc -p tsconfig.api.json && node -e \"require('fs').chmodSync('build/index.js', '755')\" && mkdir -p dist/api && cp build/*.js dist/ && cp build/api/*.js dist/api/",
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js"
