@@ -3,6 +3,7 @@
 // 为老版本 Node.js 添加 AbortController polyfill
 import AbortController from 'abort-controller';
 global.AbortController = global.AbortController || AbortController;
+import { pathToFileURL } from 'url';
 
 /**
  * Metabase MCP 服务器
@@ -16,6 +17,7 @@ global.AbortController = global.AbortController || AbortController;
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
@@ -63,10 +65,14 @@ const METABASE_USERNAME = process.env.METABASE_USERNAME;
 const METABASE_PASSWORD = process.env.METABASE_PASSWORD;
 const METABASE_API_KEY = process.env.METABASE_API_KEY;
 
-if (!METABASE_URL || (!METABASE_API_KEY && (!METABASE_USERNAME || !METABASE_PASSWORD))) {
-  throw new Error(
-    "Either (METABASE_URL and METABASE_API_KEY) or (METABASE_URL, METABASE_USERNAME, and METABASE_PASSWORD) environment variables are required"
-  );
+type RuntimeMode = "stdio" | "http";
+
+function validateEnvironmentVariables() {
+  if (!METABASE_URL || (!METABASE_API_KEY && (!METABASE_USERNAME || !METABASE_PASSWORD))) {
+    throw new Error(
+      "Either (METABASE_URL and METABASE_API_KEY) or (METABASE_URL, METABASE_USERNAME, and METABASE_PASSWORD) environment variables are required"
+    );
+  }
 }
 
 // 创建自定义 Schema 对象，使用 z.object
@@ -82,8 +88,12 @@ class MetabaseServer {
   private server: Server;
   private axiosInstance: AxiosInstance;
   private sessionToken: string | null = null;
+  private readonly mode: RuntimeMode;
 
-  constructor() {
+  constructor(mode: RuntimeMode = "stdio") {
+    this.mode = mode;
+    validateEnvironmentVariables();
+
     this.server = new Server(
       {
         name: "metabase-server",
@@ -127,11 +137,13 @@ class MetabaseServer {
       this.logError('Server Error', error);
     };
 
-    process.on('SIGINT', async () => {
-      this.logInfo('Shutting down server...');
-      await this.server.close();
-      process.exit(0);
-    });
+    if (this.mode === "stdio") {
+      process.on('SIGINT', async () => {
+        this.logInfo('Shutting down server...');
+        await this.server.close();
+        process.exit(0);
+      });
+    }
   }
 
   // Add logging utilities
@@ -1605,29 +1617,83 @@ class MetabaseServer {
       throw error;
     }
   }
+
+  async handleHttpRequest(request: Request): Promise<Response> {
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+
+    await this.server.connect(transport);
+
+    try {
+      return await transport.handleRequest(request);
+    } finally {
+      await this.server.close();
+    }
+  }
 }
 
-// Add global error handlers
-process.on('uncaughtException', (error: Error) => {
-  console.error(JSON.stringify({
-    timestamp: new Date().toISOString(),
-    level: 'fatal',
-    message: 'Uncaught Exception',
-    error: error.message,
-    stack: error.stack
-  }));
-  process.exit(1);
-});
+function formatHttpError(_request: Request, error: unknown): Response {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  return new Response(JSON.stringify({
+    jsonrpc: "2.0",
+    id: null,
+    error: {
+      code: -32603,
+      message: errorMessage,
+      data: {
+        type: "internal_error",
+      },
+    },
+  }), {
+    status: 500,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
+  });
+}
 
-process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
-  const errorMessage = reason instanceof Error ? reason.message : String(reason);
-  console.error(JSON.stringify({
-    timestamp: new Date().toISOString(),
-    level: 'fatal',
-    message: 'Unhandled Rejection',
-    error: errorMessage
-  }));
-});
+const isCliEntrypoint = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-const server = new MetabaseServer();
-server.run().catch(console.error);
+if (isCliEntrypoint) {
+  process.on('uncaughtException', (error: Error) => {
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'fatal',
+      message: 'Uncaught Exception',
+      error: error.message,
+      stack: error.stack
+    }));
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
+    const errorMessage = reason instanceof Error ? reason.message : String(reason);
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'fatal',
+      message: 'Unhandled Rejection',
+      error: errorMessage
+    }));
+  });
+
+  const server = new MetabaseServer("stdio");
+  server.run().catch(console.error);
+}
+
+export default async function handler(request: Request): Promise<Response> {
+  try {
+    const server = new MetabaseServer("http");
+    return await server.handleHttpRequest(request);
+  } catch (error) {
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'error',
+      message: 'HTTP request failed',
+      error: error instanceof Error ? error.message : String(error)
+    }));
+    return formatHttpError(request, error);
+  }
+}
